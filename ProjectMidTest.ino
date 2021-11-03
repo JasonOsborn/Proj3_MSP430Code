@@ -3,7 +3,7 @@
 
 using namespace std;
 
-// NOTE: This version of the project doesn't rely on external stimulus, and instead roughly approximates it.
+// NOTE: This version of the project doesn't rely on external stimulus, and instead roughly approximates it for testing purposes when transmitter is unavailable.
 
 LiquidCrystal lcd(P1_6, P6_6, P3_2, P2_7, P4_2, P4_1);
 
