@@ -28,24 +28,25 @@ void setup()
   lcd.setCursor(0, 0);
   lcd.print("Initializing...");
   lcd.setCursor(0, 1);
-  lcd.print("Init-2...");
-  delay(3000);
+  lcd.print("Init...");
+  delay(1500);
   lcd.clear();
 
   bool StartFlag = 1;
+  bool StartFlag2 = 1;
   int Counter = 0;
 
-  //StartFlagTRUE functionality
   int PrevVal = 0;
   unsigned long FalseTimerStorage[4] = {};
   int StartCounter = 0;
 
   while (StartFlag) {
-    int P_TEMP = P1IN;
+    int P_TEMP = P1IN; // Store pin for stability
     int InputVal = (P_TEMP & BIT2) >> 2; // Take value from pin
 
-    // super simple edge detection, along with recording the timing of the edges to sync up with received data
-    if (InputVal != PrevVal) {
+    // Manual sync with transmitter. When sync is complete, button is pushed on transmitter side.
+    // Super simple edge detection, as setup phase is a 1-0 repeating bitstream.
+    if ((InputVal != PrevVal) && (!StartFlag2)) {
       FalseTimerStorage[StartCounter] = millis();
       globStorage = globStorage + InputVal; // add the value to the storage
       PrevVal = InputVal;
@@ -55,18 +56,24 @@ void setup()
       }
       if (globStorage == 0b1010) {
         StartFlag = 0;
-        globFalseTimer = ((FalseTimerStorage[3] - FalseTimerStorage[2]) + (FalseTimerStorage[2] - FalseTimerStorage[1]) + (FalseTimerStorage[1] - FalseTimerStorage[0])); // Av. of time distance between bits
+        globFalseTimer = ((FalseTimerStorage[3] - FalseTimerStorage[2]) + (FalseTimerStorage[2] - FalseTimerStorage[1]) + (FalseTimerStorage[1] - FalseTimerStorage[0]));
+        globFalseTimer = globFalseTimer / 3; // Av. of time between edges
       }
       else {
         globStorage = globStorage << 1; // move the storage over to make room for more val
       }
     }
+    else if ((InputVal != PrevVal) && (StartFlag2)){
+      StartFlag2 = 0;
+      int P_TEMP = P1IN;
+      PrevVal = (P_TEMP & BIT2) >> 2;
+    }
 
   }
-  globFalseTimer = globFalseTimer / 3;
+  // globFalseTimer should read as the exact value set in the transmitter. If not, a manual reset here is required, and indicates some level of false positive.
   lcd.clear();
   lcd.print(globFalseTimer, 16);
-  delay(1000); // Reset here if globFalseTimer is incorrect
+  delay(1000);
 
 }
 
@@ -95,6 +102,7 @@ void loop()
 
   globStorage = globStorage + globInputVal; // Insert new value into storage
   
+  // all lcd prints nested in this if statement are purely for debug purposes and can/should be removed later on.
   if (globStorage & 0x0001) {
     lcd.setCursor(12, 0);
     lcd.print("a");
