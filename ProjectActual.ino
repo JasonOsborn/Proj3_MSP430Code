@@ -1,26 +1,27 @@
 #include <msp430F5529.h>
-#include <LiquidCrystal.h> // hope it works
+#include <LiquidCrystal.h>
 
 using namespace std;
 
 LiquidCrystal lcd(P3_3, P6_6, P3_2, P2_7, P4_2, P4_1);
 
-long globFalseTimer = 15; // The time it takes to send 1 bit. Init value 15 as default/fallthrough.
-// This value is initialized at 15 milliseconds per bit over 16 bits, but is dynamically changed depending on initial setup phase, as can be seen in StartFlagTRUE functionality
-long globDelayTracker = 0;
-long globStorage = 0;
+long globFalseTimer = 15.0; // The time it takes to send 1 bit. Init value 15 as default/fallthrough.
+// This value is initialized at 15 milliseconds per bit over 17 bits, but is dynamically changed depending on initial setup phase, as can be seen in StartFlagTRUE functionality
+long globDelayTracker = 0.0;
+long globStorage = 0.0;
 int globInputVal = 2;
 
-long temp = 0;
+long temp = 0.0;
 int DebugCounter = 0;
 
 int globCounterTemp = 0;
-float prevVolt[4] = {};
+float prevVolt[4] = {0.0,0.0,0.0,0.0};
 
 void setup()
 {
   WDTCTL = WDTPW | WDTHOLD; // stop watchdog timer
-  P1DIR |= BIT3; ; // Set P1.3 as input -> This is the input from the antenna
+  P1DIR = 0; ; // Set P1.3 as input -> This is the input from the antenna
+  P1REN = BIT2;
 
   sleep(2);
 
@@ -37,7 +38,7 @@ void setup()
   int Counter = 0;
 
   int PrevVal = 0;
-  long FalseTimerStorage[4] = {};
+  long FalseTimerStorage[4] = {0.0,0.0,0.0,0.0};
   int StartCounter = 0;
 
   while (StartFlag) {
@@ -78,9 +79,8 @@ void setup()
 
 }
 
-
 // For reference: Messages contained in storage in main loop contains the following in bitwise logic:
-// 0b(P--- ---- ---- -001)
+// 0b(1 P--- ---- ---- -001)
 // Where 1s and 0s are always as such (referred to as 'buffer' bits in code
 // P is the polarity of the message
 // and - represent bits of the actual 12 bit message (0x7FF8)
@@ -89,75 +89,75 @@ void setup()
 
 void loop()
 {
-  float voltage = 9999; // calculated value (initially high as placeholder)
-
+  int voltage = 0; // calculated value (initially high as placeholder)
+  float fvoltage = 0.0;
   // Polarity check
   int polarity;
   int polarityTrue;
   bool polarFlag = 0;
 
   while ((millis() - globDelayTracker) < globFalseTimer) { } // Hold arbitrarily until 1 bitlength has passed since the last new value was obtained.
-  int P_TEMP = P1IN;
+  long P_TEMP = P1IN;
   globInputVal = (P_TEMP & BIT2) >> 2; // Take value from pin
   globDelayTracker = millis(); // Grab time value was recorded.
 
   globStorage = globStorage + globInputVal; // Insert new value into storage
   
   // all lcd prints nested in this if statement are purely for debug purposes and can/should be removed later on.
-  if (globStorage & 0x0001) {
+  if ((globStorage & 0x10007) == 0x10001) {
     lcd.setCursor(12, 0);
     lcd.print("a");
-    if ((globStorage & 0x6) == 0) {
+    polarity = (globStorage & 0x8000) >> 15; // Extract the polarity bit from the storage.
+    polarityTrue = (globStorage & 0x0008) >> 3; // Calculate the ACTUAL polarity of the message. Compare the two.
+    if (polarity == polarityTrue) {
       lcd.print("b");
-      polarity = (globStorage & 0x8000) >> 15; // Extract the polarity bit from the storage.
-      polarityTrue = (globStorage & 0x0008) >> 3; // Calculate the ACTUAL polarity of the message. Compare the two.
-      if (polarity == polarityTrue) {
-        lcd.print("c");
-        polarFlag = 1;
-        voltage = (globStorage & 0x7FFF) >> 3;
-        voltage = voltage / 1247.3; // Extract message & convert to voltage
+      polarFlag = 1;
+      voltage = (globStorage & 0x7FFF) >> 3;
+      lcd.setCursor(0,1);
+      lcd.print(voltage,16);
+      fvoltage = float(voltage) / 1247.3; // Extract message & convert to voltage
 
-        // Calculate standard deviation of previous 4 + current voltage values
-        float mean = (prevVolt[0]+prevVolt[1]+prevVolt[2]+prevVolt[3]+voltage)/5;
-        float stdDev = sqrt((sq(prevVolt[0]-mean)+sq(prevVolt[1]-mean)+sq(prevVolt[2]-mean)+sq(prevVolt[3]-mean)+sq(voltage-mean))/5);
+      // Calculate standard deviation of previous 4 + current voltage values
+      float mean = (prevVolt[0]+prevVolt[1]+prevVolt[2]+prevVolt[3]+fvoltage)/5;
+      float stdDev = sqrt((sq(prevVolt[0]-mean)+sq(prevVolt[1]-mean)+sq(prevVolt[2]-mean)+sq(prevVolt[3]-mean)+sq(fvoltage-mean))/5);
 
-        // cycle out obsolete data
-        for (int i = 0;i<3;i++){
-          prevVolt[i] = prevVolt[i+1];
-        }
+      // cycle out obsolete data
+      for (int i = 0;i<3;i++){
+        prevVolt[i] = prevVolt[i+1];
+      }
 
-        // If voltage == 0, it's an incorrect calculation, ignore it. If it is not, save it to prevVolt array.
-        if(voltage > 0.04)
-          prevVolt[3] = voltage;
-        
-        // If current volt is too distant from the mean, display prev. voltage instead of current.
-        // ALSO, if voltage reads as 0, display prev. In theory this should also be outside std dev range, but better to set up just in case.
-        // ALSO, if standard dev. is 0, ignore it, just push the voltage through (as long as it's not 0)
-        if((stdDev == 0) && (voltage > 0.04)){ }
-        else if((fabs(voltage-mean)>(stdDev/2)) || (voltage < 0.04)){
-          lcd.setCursor(5,1);
-          lcd.print(stdDev,16);
-          lcd.setCursor(10,1);
-          lcd.print(" ");
-          lcd.setCursor(11,1);
-          lcd.print(voltage,16); // Debug- let us know what the actual value is.
-          voltage = prevVolt[2];
-        }
+      // If voltage == 0, it's an incorrect calculation, ignore it. If it is not, save it to prevVolt array.
+      if(fvoltage > 0.04){
+        prevVolt[3] = fvoltage;
+      }
+            
+      // If current volt is too distant from the mean, display prev. voltage instead of current.
+      // ALSO, if voltage reads as 0, display prev. In theory this should also be outside std dev range, but better to set up just in case.
+      // ALSO, if standard dev. is 0, ignore it, just push the voltage through (as long as it's not 0)
+      if((stdDev == 0) && (fvoltage > 0.04)){ }
+      else if(((fabs(fvoltage-mean)>(stdDev/4))) || (fvoltage < 0.04)){
+//          lcd.setCursor(5,1);
+//          lcd.print(stdDev,16);
+        lcd.setCursor(10,1);
+        lcd.print(" ");
+        lcd.setCursor(11,1);
+        lcd.print(fvoltage,16); // Debug- let us know what the actual value is.
+        fvoltage = prevVolt[2];
       }
     }
+  }
+  else{
+    lcd.setCursor(12,0);
+    lcd.print("  ");
   }
   if (polarFlag) {
     polarFlag = 0;
     lcd.setCursor(0, 0);
-    lcd.print(voltage);
+    lcd.print(fvoltage);
     lcd.print(" Volts");
-    lcd.setCursor(0, 1);
-    if(voltage < 0.01){
-      lcd.print("ERR");
-    }
     if(globCounterTemp > 3){
       globCounterTemp = 0;
     }
   }
-  globStorage = (globStorage << 1) & 0xFFFF; // Make room for new data, handle overflow
+  globStorage = (globStorage << 1) & 0x1FFFF; // Make room for new data, handle overflow
 }
